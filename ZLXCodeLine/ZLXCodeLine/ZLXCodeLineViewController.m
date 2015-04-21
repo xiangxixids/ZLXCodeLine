@@ -19,6 +19,7 @@ static NSString *LastEditExtensionKey   = @"LastEditExtensionKey";
 
 // Manager
 @property (strong,nonatomic) NSFileManager *fileManager;
+@property (strong,nonatomic) NSDateFormatter *fmt;
 
 // Data
 @property (assign,nonatomic) NSUInteger codeLines;
@@ -98,6 +99,13 @@ static NSString *LastEditExtensionKey   = @"LastEditExtensionKey";
     return _fileManager;
 }
 
+- (NSDateFormatter *)fmt{
+    if (!_fmt) {
+        self.fmt = [[NSDateFormatter alloc] init];
+    }
+    return _fmt;
+}
+
 /**
  *  按钮点击的时候记录状态
  */
@@ -172,183 +180,238 @@ static NSString *LastEditExtensionKey   = @"LastEditExtensionKey";
         NSInteger arrCount = workfilesM.count;
         // 2.遍历每个文件
         for (NSInteger i = 0; i <= arrCount; i++) {
-            
             // 记录遍历的百分比
             dispatch_async(dispatch_get_main_queue(), ^{
-                [self.titleField setStringValue:[NSString stringWithFormat:@"已经遍历 %% %f 一共有%ld文件,正在扫描%ld个文件!",((double)i / (double)(arrCount)) * 100,i,arrCount]];
+                [self updateFileRadioCount:arrCount atCurrentIndex:i];
             });
             
             // 最后的时候，调用block
             if (i == arrCount && self.buttons.count == 0) {
                 dispatch_async(dispatch_get_main_queue(), ^{
                     // 统计当前代码量
-                    self.titleField.stringValue = [NSString stringWithFormat:@"%@项目共有%ld行代码!", [[self.workspace componentsSeparatedByString:@"/"] lastObject],self.codeLines];
-                    [self.files sortUsingComparator:^NSComparisonResult(ZLXCodeFile *file1, ZLXCodeFile *file2) {
-                        if (file1.fileLines > file2.fileLines) {
-                            return NSOrderedAscending;
-                        }else{
-                            return NSOrderedDescending;
-                        }
-                    }];
-                    
+                    [self updateLabelCount];
+                    // 对结果进行行数排序
+                    [self sortedArrayInFilesLines];
                     [self.tableView reloadData];
-                    
                     // 获取改动的代码量
-                    NSArray *lastList = [[NSUserDefaults standardUserDefaults] objectForKey:LastEditExtensionKey];
-                    // 数据格式 项目名_时间_代码量
-                    for (NSString *lastPath in lastList) {
-                        if ([lastPath rangeOfString:self.workspace].location != NSNotFound) {
-                            
-                            NSArray *data = [lastPath componentsSeparatedByString:@"_"];
-                            NSString *time = data[1];
-                            NSString *lines = data[2];
-                            
-                            [self.recoderLastEditLabel setStringValue:[NSString stringWithFormat:@"上一次查看的时间：%@，改动了%ld行代码",time,abs((int)self.codeLines - [lines intValue])]];
-                            break;
-                        }
-                    }
-                    
-                    [self.extensionLabel setStringValue:@""];
-                    for (ZLXCodeFileType *type in [self.fileExtesionDict allValues]) {
-                        // 统计名字
-                        [self.extensionLabel setStringValue:[NSString stringWithFormat:@"%@ %@有%ld文件",[self.extensionLabel stringValue], type.typeName,type.counts]];
-                    }
-                    
-                    NSMutableArray *lastLists = [NSMutableArray arrayWithArray:lastList];
-                    // 数据格式 项目名_时间_代码量
-                    for (NSString *lastPath in lastLists) {
-                        if ([lastPath rangeOfString:self.workspace].location != NSNotFound) {
-                            [lastLists removeObject:lastPath];
-                            break;
-                        }
-                    }
-                    
-                    NSDateFormatter *fmt = [[NSDateFormatter alloc] init];
-                    fmt.dateFormat = @"yyyy-MM-dd HH:mm";
-                    NSString *date = [fmt stringFromDate:[NSDate date]];
-                    
-                    [lastLists addObject:[NSString stringWithFormat:@"%@_%@_%ld",self.workspace,date,self.codeLines]];
-                    [[NSUserDefaults standardUserDefaults] setObject:lastLists forKey:LastEditExtensionKey];
+                    [self getChangeCodeLines];
                     
                     CGFloat width = self.topView.frame.size.width / 10;
-                    
-                    for (NSInteger i = 0; i < self.originFilters.count; i++) {
-                        NSButton *btn = [[NSButton alloc] init];
-                        if (i > 0) {
-                            [btn setButtonType:NSSwitchButton];
-                            btn.action = @selector(switchClickOnButton:);
-                        }else{
-                            [btn setButtonType:NSPushOnPushOffButton];
-                            btn.action = @selector(refreshClickOnButton);
-                        }
-                        
-                        btn.title = [NSString stringWithFormat:@"%@",self.originFilters[i]];
-                        btn.target = self;
-                        btn.state = [self switchButtonOnStateWithTitle:btn.title];
-                        if (i == 0) {
-                            btn.frame = NSRectFromCGRect(CGRectMake(0, self.topView.frame.size.height - ZLXCodeButtonWidthOrHeight, width + ZLXCodeButtonWidthOrHeight, ZLXCodeButtonWidthOrHeight));
-                        }else{
-                            btn.frame = NSRectFromCGRect(CGRectMake((width + 10) * i + ZLXCodeButtonWidthOrHeight, self.topView.frame.size.height - ZLXCodeButtonWidthOrHeight, width + ZLXCodeButtonWidthOrHeight, ZLXCodeButtonWidthOrHeight));
-                        }
-
-                        [self.topView addSubview:btn];
-                    }
-                    
-                    NSMutableArray *fileNames = [NSMutableArray array];
-                    for (NSString *fileType in self.filterExtension) {
-                        [fileNames addObject:fileType];
-                    }
-                    
-                    for (ZLXCodeFileType *fileType in [self.fileExtesionDict allValues]) {
-                        [fileNames addObject:fileType.typeName];
-                    }
-                    
-                    NSMutableSet *set = [NSMutableSet setWithArray:fileNames];
-                    [set minusSet:[NSSet setWithArray:self.originFilters]];
-                    
-                    [[set allObjects] enumerateObjectsUsingBlock:^(NSString *fileType, NSUInteger index, BOOL *stop) {
-                        
-                            NSButton *btn = [[NSButton alloc] init];
-                            
-                            [btn setButtonType:NSSwitchButton];
-                            btn.title = [NSString stringWithFormat:@"%@",fileType];
-                            btn.state = [self switchButtonOnStateWithTitle:btn.title];
-                            btn.target = self;
-                            btn.action = @selector(switchClickOnButton:);
-                            NSInteger row = (index + self.originFilters.count) / ZLXCodeButtonColumn;
-                            NSInteger col = (index + self.originFilters.count) % ZLXCodeButtonColumn;
-                            
-                            if (row == 0) {
-                                btn.frame = NSRectFromCGRect(CGRectMake((col) * (width+10)+ZLXCodeButtonWidthOrHeight * 2, self.topView.frame.size.height - ZLXCodeButtonWidthOrHeight, width + ZLXCodeButtonWidthOrHeight, ZLXCodeButtonWidthOrHeight));
-                            }else{
-                                btn.frame = NSRectFromCGRect(CGRectMake(col * (width  + 10), self.topView.frame.size.height - (row + 1) * ZLXCodeButtonWidthOrHeight,width + ZLXCodeButtonWidthOrHeight, ZLXCodeButtonWidthOrHeight));
-                            }
-                            
-                            [self.topView addSubview:btn];
-                            [self.buttons addObject:btn];
-                    }];
-                    
+                    // 创建默认的过滤按钮
+                    [self createOriginFilterButtonWidth:width];
+                    // 添加默认的过滤数组与NSUserDefaults里面的后缀名数组
+                    [self createFileExtensionFilterButtonWidth:width];
                 });
                 
                 break;
             }
             
+            // 获取行数
             NSString *pathArr = workfilesM[i];
-            NSString *str = [[NSString alloc] initWithContentsOfFile:pathArr encoding:NSUTF8StringEncoding error:nil];
-            
-            NSInteger lineCounts = 0;
-            if ([self.filterExtension containsObject:@"\\n"]) {
-                lineCounts = [[str componentsSeparatedByString:@"\n"] count];
-                for (NSString *lineStr in [str componentsSeparatedByString:@"\n"]) {
-                    
-                    if (lineStr.length == 0) {
-                        lineCounts--;
-                    }else{
-                        BOOL isEmptyWarp = YES;
-                        for(int i = 0; i < [lineStr length]; i++)
-                        {
-                            if (!([[lineStr substringWithRange:NSMakeRange(i,1)] isEqualToString:@" "] || [[lineStr substringWithRange:NSMakeRange(i,1)] isEqualToString:@""])){
-                                isEmptyWarp = NO;
-                                break;
-                            }
-                        }
-                        if (isEmptyWarp) {
-                            lineCounts--;
-                        }
-                    }
-                    
-                }
-            }else {
-                lineCounts = [[str componentsSeparatedByString:@"\n"] count];
-            }
+            NSInteger lineCounts = [self getLinesCountWithName:pathArr];
             
             // 记录代码行数等信息
             if (lineCounts > 0) {
-                ZLXCodeFileType *fileType = nil;
-                if (![self.fileExtesionDict valueForKeyPath:[pathArr pathExtension]]) {
-                    fileType = [[ZLXCodeFileType alloc] init];
-                    fileType.counts = 1;
-                    
-                }else{
-                    fileType = [self.fileExtesionDict valueForKeyPath:[pathArr pathExtension]];
-                    fileType.counts += 1;
-                }
-                
-                fileType.typeName = [NSString stringWithFormat:@".%@",[pathArr pathExtension]];
-                fileType.lines += lineCounts;
-                [self.fileExtesionDict setValue:fileType forKeyPath:[pathArr pathExtension]];
-                
-                ZLXCodeFile *file = [[ZLXCodeFile alloc] init];
-                file.fileLines = lineCounts;
-                file.filePath = pathArr;
-                [self.files addObject:file];
-                
-                self.codeLines += lineCounts;
+                [self recoderLineCount:lineCounts withPath:pathArr];
             }
         }
     });
 }
 
+/**
+ *  获取改动的代码量
+ */
+#pragma mark - 获取改动的代码量
+- (void)getChangeCodeLines{
+    NSArray *lastList = [[NSUserDefaults standardUserDefaults] objectForKey:LastEditExtensionKey];
+    // 数据格式 项目名_时间_代码量
+    for (NSString *lastPath in lastList) {
+        if ([lastPath rangeOfString:self.workspace].location != NSNotFound) {
+            NSArray *data = [lastPath componentsSeparatedByString:@"_"];
+            NSString *time = data[1];
+            NSString *lines = data[2];
+            [self.recoderLastEditLabel setStringValue:[NSString stringWithFormat:@"上一次查看的时间：%@，改动了%ld行代码",time,abs((int)self.codeLines - [lines intValue])]];
+            break;
+        }
+    }
+    
+    [self.extensionLabel setStringValue:@""];
+    for (ZLXCodeFileType *type in [self.fileExtesionDict allValues]) {
+        // 统计名字
+        [self.extensionLabel setStringValue:[NSString stringWithFormat:@"%@ %@有%ld文件",[self.extensionLabel stringValue], type.typeName,type.counts]];
+    }
+    
+    NSMutableArray *lastLists = [NSMutableArray arrayWithArray:lastList];
+    // 数据格式 项目名_时间_代码量
+    for (NSString *lastPath in lastLists) {
+        if ([lastPath rangeOfString:self.workspace].location != NSNotFound) {
+            [lastLists removeObject:lastPath];
+            break;
+        }
+    }
+    
+    self.fmt.dateFormat = @"yyyy-MM-dd HH:mm";
+    NSString *date = [self.fmt stringFromDate:[NSDate date]];
+    [lastLists addObject:[NSString stringWithFormat:@"%@_%@_%ld",self.workspace,date,self.codeLines]];
+    [[NSUserDefaults standardUserDefaults] setObject:lastLists forKey:LastEditExtensionKey];
+}
+
+/**
+ *  对结果进行行数排序
+ */
+#pragma mark - 对结果进行行数排序
+- (void) sortedArrayInFilesLines{
+    [self.files sortUsingComparator:^NSComparisonResult(ZLXCodeFile *file1, ZLXCodeFile *file2) {
+        if (file1.fileLines > file2.fileLines) {
+            return NSOrderedAscending;
+        }else{
+            return NSOrderedDescending;
+        }
+    }];
+}
+
+/**
+ *  更新代码量label
+ */
+#pragma mark - 更新代码量label
+- (void)updateLabelCount{
+    self.titleField.stringValue = [NSString stringWithFormat:@"%@项目共有%ld行代码!", [[self.workspace componentsSeparatedByString:@"/"] lastObject],self.codeLines];
+}
+
+/**
+ *  创建默认的过滤按钮
+ */
+#pragma mark - 创建默认的过滤按钮
+- (void)createOriginFilterButtonWidth:(CGFloat)width{
+    for (NSInteger i = 0; i < self.originFilters.count; i++) {
+        NSButton *btn = [[NSButton alloc] init];
+        if (i > 0) {
+            [btn setButtonType:NSSwitchButton];
+            btn.action = @selector(switchClickOnButton:);
+        }else{
+            [btn setButtonType:NSPushOnPushOffButton];
+            btn.action = @selector(refreshClickOnButton);
+        }
+        
+        btn.title = [NSString stringWithFormat:@"%@",self.originFilters[i]];
+        btn.target = self;
+        btn.state = [self switchButtonOnStateWithTitle:btn.title];
+        if (i == 0) {
+            btn.frame = NSRectFromCGRect(CGRectMake(0, self.topView.frame.size.height - ZLXCodeButtonWidthOrHeight, width + ZLXCodeButtonWidthOrHeight, ZLXCodeButtonWidthOrHeight));
+        }else{
+            btn.frame = NSRectFromCGRect(CGRectMake((width + 10) * i + ZLXCodeButtonWidthOrHeight, self.topView.frame.size.height - ZLXCodeButtonWidthOrHeight, width + ZLXCodeButtonWidthOrHeight, ZLXCodeButtonWidthOrHeight));
+        }
+        
+        [self.topView addSubview:btn];
+    }
+}
+
+/**
+ *  根据后缀名来创建Button
+ */
+#pragma mark - 根据后缀名来创建Button
+- (void)createFileExtensionFilterButtonWidth:(CGFloat)width{
+    NSMutableArray *fileNames = [NSMutableArray array];
+    for (NSString *fileType in self.filterExtension) {
+        [fileNames addObject:fileType];
+    }
+    for (ZLXCodeFileType *fileType in [self.fileExtesionDict allValues]) {
+        [fileNames addObject:fileType.typeName];
+    }
+    
+    NSMutableSet *set = [NSMutableSet setWithArray:fileNames];
+    [set minusSet:[NSSet setWithArray:self.originFilters]];
+    [[set allObjects] enumerateObjectsUsingBlock:^(NSString *fileType, NSUInteger index, BOOL *stop) {
+        [self createFileExtensionFilterButtonWidth:width atIndex:index fileType:fileType];
+    }];
+}
+
+- (void)createFileExtensionFilterButtonWidth:(CGFloat)width atIndex:(NSInteger)index fileType:(NSString *)fileType{
+    NSButton *btn = [[NSButton alloc] init];
+    [btn setButtonType:NSSwitchButton];
+    btn.title = [NSString stringWithFormat:@"%@",fileType];
+    btn.state = [self switchButtonOnStateWithTitle:btn.title];
+    btn.target = self;
+    btn.action = @selector(switchClickOnButton:);
+    NSInteger row = (index + self.originFilters.count) / ZLXCodeButtonColumn;
+    NSInteger col = (index + self.originFilters.count) % ZLXCodeButtonColumn;
+    
+    if (row == 0) {
+        btn.frame = NSRectFromCGRect(CGRectMake((col) * (width+10)+ZLXCodeButtonWidthOrHeight * 2, self.topView.frame.size.height - ZLXCodeButtonWidthOrHeight, width + ZLXCodeButtonWidthOrHeight, ZLXCodeButtonWidthOrHeight));
+    }else{
+        btn.frame = NSRectFromCGRect(CGRectMake(col * (width  + 10), self.topView.frame.size.height - (row + 1) * ZLXCodeButtonWidthOrHeight,width + ZLXCodeButtonWidthOrHeight, ZLXCodeButtonWidthOrHeight));
+    }
+    
+    [self.topView addSubview:btn];
+    [self.buttons addObject:btn];
+}
+
+/**
+ *  通过文件名获取行数
+ */
+#pragma mark - 通过文件名获取行数
+- (NSInteger)getLinesCountWithName:(NSString *)pathArr{
+    NSInteger lineCounts = 0;
+    NSString *str = [[NSString alloc] initWithContentsOfFile:pathArr encoding:NSUTF8StringEncoding error:nil];
+    if ([self.filterExtension containsObject:@"\\n"]) {
+        lineCounts = [[str componentsSeparatedByString:@"\n"] count];
+        for (NSString *lineStr in [str componentsSeparatedByString:@"\n"]) {
+            
+            if (lineStr.length == 0) {
+                lineCounts--;
+            }else{
+                BOOL isEmptyWarp = YES;
+                for(int i = 0; i < [lineStr length]; i++)
+                {
+                    if (!([[lineStr substringWithRange:NSMakeRange(i,1)] isEqualToString:@" "] || [[lineStr substringWithRange:NSMakeRange(i,1)] isEqualToString:@""])){
+                        isEmptyWarp = NO;
+                        break;
+                    }
+                }
+                if (isEmptyWarp) {
+                    lineCounts--;
+                }
+            }
+            
+        }
+    }else {
+        lineCounts = [[str componentsSeparatedByString:@"\n"] count];
+    }
+    
+    return lineCounts;
+}
+
+- (void)updateFileRadioCount:(NSInteger)arrCount atCurrentIndex:(NSInteger)i{
+    [self.titleField setStringValue:[NSString stringWithFormat:@"已经遍历 %% %f 一共有%ld文件,正在扫描%ld个文件!",((double)i / (double)(arrCount)) * 100,i,arrCount]];
+}
+
+/**
+ *  记录行数与文件名
+ */
+#pragma mark - 记录行数与文件名
+- (void)recoderLineCount:(NSInteger)lineCounts withPath:(NSString *)pathArr{
+    ZLXCodeFileType *fileType = nil;
+    if (![self.fileExtesionDict valueForKeyPath:[pathArr pathExtension]]) {
+        fileType = [[ZLXCodeFileType alloc] init];
+        fileType.counts = 1;
+        
+    }else{
+        fileType = [self.fileExtesionDict valueForKeyPath:[pathArr pathExtension]];
+        fileType.counts += 1;
+    }
+    
+    fileType.typeName = [NSString stringWithFormat:@".%@",[pathArr pathExtension]];
+    fileType.lines += lineCounts;
+    [self.fileExtesionDict setValue:fileType forKeyPath:[pathArr pathExtension]];
+    
+    ZLXCodeFile *file = [[ZLXCodeFile alloc] init];
+    file.fileLines = lineCounts;
+    file.filePath = pathArr;
+    [self.files addObject:file];
+    self.codeLines += lineCounts;
+}
+
+#pragma mark - 刷新过滤按钮点击
 - (void)refreshClickOnButton{
     [self searchWorkSpaceFiles];
 }
@@ -363,12 +426,12 @@ static NSString *LastEditExtensionKey   = @"LastEditExtensionKey";
     if (self.files.count > row) {
         field = [[NSTextField alloc] init];
         field.editable = NO;
-//        [field setStringValue:self.files[row]];
         ZLXCodeFile *file = self.files[row];
         [field setStringValue:[NSString stringWithFormat:@"%ld行 %@",file.fileLines, file.filePath]];
     }
     return field;
 }
+
 
 - (CGFloat)tableView:(NSTableView *)tableView heightOfRow:(NSInteger)row{
     return 30;
