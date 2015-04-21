@@ -18,3 +18,10 @@
 @property (assign,nonatomic) NSInteger counts;
 
 @end
+
+@interface ZLXCodeFile : NSObject
+// 文件路径
+@property (copy,nonatomic) NSString *filePath;
+// 文件行数
+@property (assign,nonatomic) NSInteger fileLines;
+@end

@@ -11,3 +11,7 @@
 @implementation ZLXCodeFileType
 
 @end
+
+@implementation ZLXCodeFile
+
+@end

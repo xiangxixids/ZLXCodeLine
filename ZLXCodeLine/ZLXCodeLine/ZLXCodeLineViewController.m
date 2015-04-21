@@ -183,6 +183,14 @@ static NSString *LastEditExtensionKey   = @"LastEditExtensionKey";
                 dispatch_async(dispatch_get_main_queue(), ^{
                     // 统计当前代码量
                     self.titleField.stringValue = [NSString stringWithFormat:@"%@项目共有%ld行代码!", [[self.workspace componentsSeparatedByString:@"/"] lastObject],self.codeLines];
+                    [self.files sortUsingComparator:^NSComparisonResult(ZLXCodeFile *file1, ZLXCodeFile *file2) {
+                        if (file1.fileLines > file2.fileLines) {
+                            return NSOrderedAscending;
+                        }else{
+                            return NSOrderedDescending;
+                        }
+                    }];
+                    
                     [self.tableView reloadData];
                     
                     // 获取改动的代码量
@@ -320,6 +328,7 @@ static NSString *LastEditExtensionKey   = @"LastEditExtensionKey";
                 if (![self.fileExtesionDict valueForKeyPath:[pathArr pathExtension]]) {
                     fileType = [[ZLXCodeFileType alloc] init];
                     fileType.counts = 1;
+                    
                 }else{
                     fileType = [self.fileExtesionDict valueForKeyPath:[pathArr pathExtension]];
                     fileType.counts += 1;
@@ -329,7 +338,11 @@ static NSString *LastEditExtensionKey   = @"LastEditExtensionKey";
                 fileType.lines += lineCounts;
                 [self.fileExtesionDict setValue:fileType forKeyPath:[pathArr pathExtension]];
                 
-                [self.files addObject:[NSString stringWithFormat:@"%ld行 %@",lineCounts, pathArr]];
+                ZLXCodeFile *file = [[ZLXCodeFile alloc] init];
+                file.fileLines = lineCounts;
+                file.filePath = pathArr;
+                [self.files addObject:file];
+                
                 self.codeLines += lineCounts;
             }
         }
@@ -340,6 +353,7 @@ static NSString *LastEditExtensionKey   = @"LastEditExtensionKey";
     [self searchWorkSpaceFiles];
 }
 
+#pragma mark - <NSTableViewDataSource>
 - (NSInteger)numberOfRowsInTableView:(NSTableView *)tableView{
     return self.files.count;
 }
@@ -349,7 +363,9 @@ static NSString *LastEditExtensionKey   = @"LastEditExtensionKey";
     if (self.files.count > row) {
         field = [[NSTextField alloc] init];
         field.editable = NO;
-        [field setStringValue:self.files[row]];
+//        [field setStringValue:self.files[row]];
+        ZLXCodeFile *file = self.files[row];
+        [field setStringValue:[NSString stringWithFormat:@"%ld行 %@",file.fileLines, file.filePath]];
     }
     return field;
 }
