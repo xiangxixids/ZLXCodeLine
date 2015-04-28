@@ -63,6 +63,7 @@ static NSString *LastEditExtensionKey   = @"LastEditExtensionKey";
     if (!_originFilters) {
         _originFilters = @[
                            @"刷新过滤类型：",
+                           @"反选：",
                            @"\\n",
                            @".cocoapods",
                            @".xcworkspace"
@@ -285,12 +286,16 @@ static NSString *LastEditExtensionKey   = @"LastEditExtensionKey";
 - (void)createOriginFilterButtonWidth:(CGFloat)width{
     for (NSInteger i = 0; i < self.originFilters.count; i++) {
         NSButton *btn = [[NSButton alloc] init];
-        if (i > 0) {
-            [btn setButtonType:NSSwitchButton];
-            btn.action = @selector(switchClickOnButton:);
-        }else{
+        
+        if(i == 0){
             [btn setButtonType:NSPushOnPushOffButton];
             btn.action = @selector(refreshClickOnButton);
+        }else if(i == 1){
+            [btn setButtonType:NSPushOnPushOffButton];
+            btn.action = @selector(InverseClickOnButton);
+        }else{
+            [btn setButtonType:NSSwitchButton];
+            btn.action = @selector(switchClickOnButton:);
         }
         
         btn.title = [NSString stringWithFormat:@"%@",self.originFilters[i]];
@@ -298,12 +303,37 @@ static NSString *LastEditExtensionKey   = @"LastEditExtensionKey";
         btn.state = [self switchButtonOnStateWithTitle:btn.title];
         if (i == 0) {
             btn.frame = NSRectFromCGRect(CGRectMake(0, self.topView.frame.size.height - ZLXCodeButtonWidthOrHeight, width + ZLXCodeButtonWidthOrHeight, ZLXCodeButtonWidthOrHeight));
+        }if (i == 1) {
+            btn.frame = NSRectFromCGRect(CGRectMake((width + 10) * i + ZLXCodeButtonWidthOrHeight + ZLXCodeButtonWidthOrHeight, self.topView.frame.size.height - ZLXCodeButtonWidthOrHeight, ZLXCodeButtonWidthOrHeight * 2, ZLXCodeButtonWidthOrHeight));
         }else{
             btn.frame = NSRectFromCGRect(CGRectMake((width + 10) * i + ZLXCodeButtonWidthOrHeight, self.topView.frame.size.height - ZLXCodeButtonWidthOrHeight, width + ZLXCodeButtonWidthOrHeight, ZLXCodeButtonWidthOrHeight));
         }
         
         [self.topView addSubview:btn];
     }
+}
+
+/**
+ *  反选按钮改变状态
+ */
+#pragma mark - 反选按钮改变状态
+- (void)InverseClickOnButton{
+    
+    for (NSButton *btn in self.buttons) {
+        btn.state = !btn.state;
+        [self switchClickOnButton:btn];
+    }
+    
+    for (NSButton *btn in self.topView.subviews) {
+        if([self.buttons containsObject:btn] == NO){
+            if([[self.topView.subviews firstObject] isEqual:btn] == NO){
+                btn.state = !btn.state;
+                [self switchClickOnButton:btn];
+            }
+        }
+    }
+
+    
 }
 
 /**
